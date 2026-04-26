@@ -49,7 +49,7 @@ module "hmvlaptst001" {
   vm_name      = "hmvlaptst001"
   cpu          = 2
   memory_mb    = 4096
-  disk_size_gb = 50
+  disk_size_gb = 60
   ip_address   = "10.10.0.49"
 
   resource_pool_id  = data.vsphere_host.esxi.resource_pool_id
