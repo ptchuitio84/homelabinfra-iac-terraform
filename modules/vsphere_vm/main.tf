@@ -29,6 +29,7 @@ resource "vsphere_virtual_machine" "this" {
   network_interface {
     network_id   = var.network_id
     adapter_type = "vmxnet3"
+    connected    = true
   }
 
   disk {
