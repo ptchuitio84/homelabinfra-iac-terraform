@@ -22,14 +22,11 @@ resource "vsphere_virtual_machine" "this" {
   num_cpus  = var.cpu
   memory    = var.memory_mb
   guest_id  = var.template_guest_id
+  firmware              = "efi"
+  efi_secure_boot_enabled = true
 
   # VMware paravirtual SCSI — matches OL9 golden template
   scsi_type = "pvscsi"
-
-  # Force hard disk first in BIOS boot order — prevents PXE boot on clone
-  extra_config = {
-    "bios.bootOrder" = "hdd"
-  }
 
   network_interface {
     network_id   = var.network_id
