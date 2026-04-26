@@ -26,6 +26,11 @@ resource "vsphere_virtual_machine" "this" {
   # VMware paravirtual SCSI — matches OL9 golden template
   scsi_type = "pvscsi"
 
+  # Force hard disk first in BIOS boot order — prevents PXE boot on clone
+  extra_config = {
+    "bios.bootOrder" = "hdd"
+  }
+
   network_interface {
     network_id   = var.network_id
     adapter_type = "vmxnet3"
