@@ -163,6 +163,49 @@ Local state is a single point of failure — tied to one machine, lost if the ma
 
 ---
 
+## First-Time Setup
+
+**1. Store vSphere credentials in Vault (one-time, on hmvlapvlt001):**
+```bash
+export VAULT_ADDR=http://127.0.0.1:8200
+export VAULT_TOKEN=<root-token>
+vault kv put secret/vsphere/vcenter username=administrator@vsphere.local password=<vcenter-password>
+```
+
+**2. Verify the Minio `terraform-state` bucket exists (on hmvlapmin001):**
+```bash
+mc alias set local http://localhost:9000 <access-key> <secret-key>
+mc ls local/terraform-state
+# If missing: mc mb local/terraform-state
+```
+
+**3. Confirm Jenkins credential `nnt-vault-root-token` is set:**
+Jenkins → Manage Jenkins → Credentials → Global → `nnt-vault-root-token` (Secret Text, Vault root token).
+
+**4. Initialize on hmvlaptfm001:**
+```bash
+export VAULT_ADDR=http://10.10.0.44:8200
+export VAULT_TOKEN=<vault-root-token>
+cd /opt/homelabinfra-iac-terraform
+tofu init
+tofu plan  # Verify credentials and state backend connect correctly
+```
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Error: Failed to query available provider packages` | Minio unreachable or bucket missing | Verify hmvlapmin001 is up, `terraform-state` bucket exists |
+| `Error: Permission denied` on Vault lookup | Vault sealed or VAULT_TOKEN wrong | `vault status` on hmvlapvlt001 — unseal if needed |
+| `Error: Could not connect to vCenter` | vCenter unreachable or credentials wrong | Verify vCenter is up, check `secret/vsphere/vcenter` in Vault |
+| `Plan shows unexpected changes` | VM drifted from Terraform state (manual vCenter change) | Review diff carefully — `tofu state show <resource>` to inspect current state |
+| `State file locked` | A previous apply didn't finish cleanly | Minio has no state locking — check if another apply is running; if not, safe to proceed |
+| `EFI boot failure after clone` | Template firmware mismatch | VM module must set `firmware = "efi"` and `efi_secure_boot_enabled = true` — matches `PLTMPOL904242026` template |
+
+---
+
 ## Homelab Infrastructure Reference
 
 | VM | IP | Role |
