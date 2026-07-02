@@ -11,8 +11,8 @@ Ansible (`homelabinfra-iac-ansible`) owns what runs **on** the infrastructure af
 ```
 Git push (this repo)
     ↓
-Jenkins pipeline — nnt-jkn-terraform-apply
-    ↓ runs on hmvlaptfm001 (dedicated Terraform execution node)
+Jenkins pipeline — lab-jkn-terraform-apply
+    ↓ runs on tf-runner-01 (dedicated Terraform execution node)
     ↓
 tofu init → tofu plan → tofu apply
     │                        │
@@ -25,11 +25,11 @@ Minio S3 backend        VM is live
 (terraform.tfstate)
 ```
 
-**Execution node:** `hmvlaptfm001` (10.10.0.48) — dedicated OL9 VM running as Jenkins agent `tfm001`. All Terraform operations run here, isolated from the Ansible control node (`ans001`).
+**Execution node:** `tf-runner-01` (192.168.0.48) — dedicated OL9 VM running as Jenkins agent `tfm001`. All Terraform operations run here, isolated from the Ansible control node (`ans001`).
 
-**State backend:** Minio at `hmvlapmin001` (10.10.0.47) — S3-compatible object storage. State lives in the `terraform-state` bucket under `vsphere/terraform.tfstate`. Every plan and apply reads and writes here — no local state, ever.
+**State backend:** Minio at `minio-01` (192.168.0.47) — S3-compatible object storage. State lives in the `terraform-state` bucket under `vsphere/terraform.tfstate`. Every plan and apply reads and writes here — no local state, ever.
 
-**Credentials:** HashiCorp Vault at `hmvlapvlt001` (10.10.0.44). The vSphere provider reads `secret/vsphere/vcenter` at plan time via the Vault provider. No credentials in this repo, no credentials in `terraform.tfvars`.
+**Credentials:** HashiCorp Vault at `vault-01` (192.168.0.44). The vSphere provider reads `secret/vsphere/vcenter` at plan time via the Vault provider. No credentials in this repo, no credentials in `terraform.tfvars`.
 
 ---
 
@@ -37,14 +37,14 @@ Minio S3 backend        VM is live
 
 | Requirement | Location | Notes |
 |---|---|---|
-| OpenTofu ≥ 1.9 | `hmvlaptfm001` | Primary binary — `tofu` |
-| Terraform ≥ 1.10 | `hmvlaptfm001` | Side-by-side install — `terraform` |
-| Vault unsealed | `hmvlapvlt001:8200` | Must be unsealed before any plan/apply |
+| OpenTofu ≥ 1.9 | `tf-runner-01` | Primary binary — `tofu` |
+| Terraform ≥ 1.10 | `tf-runner-01` | Side-by-side install — `terraform` |
+| Vault unsealed | `vault-01:8200` | Must be unsealed before any plan/apply |
 | Vault secret | `secret/vsphere/vcenter` | Keys: `username`, `password` |
-| Minio running | `hmvlapmin001:9000` | Bucket `terraform-state` must exist |
-| Jenkins agent | `tfm001` label | `hmvlaptfm001` registered in Jenkins |
+| Minio running | `minio-01:9000` | Bucket `terraform-state` must exist |
+| Jenkins agent | `tfm001` label | `tf-runner-01` registered in Jenkins |
 | Jenkins credential | `vault-root-token` | Secret text — Vault root token |
-| vCenter template | `PLTMPOL904242026` | Golden OL9.7 image in vCenter |
+| vCenter template | `ol9-golden-YYYYMMDD` | Golden OL9.7 image in vCenter |
 
 ---
 
@@ -67,11 +67,11 @@ homelabinfra-iac-terraform/
 
 ---
 
-## Running Locally (on hmvlaptfm001)
+## Running Locally (on tf-runner-01)
 
 ```bash
 # Set Vault token — Jenkins injects this automatically; set manually for local runs
-export VAULT_ADDR=http://10.10.0.44:8200
+export VAULT_ADDR=http://192.168.0.44:8200
 export VAULT_TOKEN=<vault-root-token>
 
 cd /opt/homelabinfra-iac-terraform
@@ -93,9 +93,9 @@ tofu destroy
 
 ## Jenkins Pipeline
 
-**Pipeline:** `nnt-jkn-terraform-apply`
+**Pipeline:** `lab-jkn-terraform-apply`
 **Agent:** `tfm001`
-**Groovy:** `jenkins/infra/nnt-jkn-terraform-apply.groovy` (in `homelabinfra-iac-ansible` repo)
+**Groovy:** `jenkins/infra/lab-jkn-terraform-apply.groovy` (in `homelabinfra-iac-ansible` repo)
 
 Parameters:
 
@@ -113,14 +113,14 @@ Run `plan` first to validate before every `apply`. The plan output is saved to `
 1. Add a module block in `main.tf`:
 
 ```hcl
-module "hmvlapXXX001" {
+module "lab-vm-xxx-01" {
   source = "./modules/vsphere_vm"
 
-  vm_name      = "hmvlapXXX001"
+  vm_name      = "lab-vm-xxx-01"
   cpu          = 2
   memory_mb    = 4096
   disk_size_gb = 50
-  ip_address   = "10.10.0.XX"
+  ip_address   = "192.168.0.XX"
 
   resource_pool_id  = data.vsphere_host.esxi.resource_pool_id
   datastore_id      = data.vsphere_datastore.ds.id
@@ -133,7 +133,7 @@ module "hmvlapXXX001" {
 
 2. Add a corresponding output in `outputs.tf` if the IP is needed downstream.
 3. Commit, push, run `plan` in Jenkins, review, run `apply`.
-4. After the VM is live, trigger the Ansible `nnt-jkn-provision-vm`-equivalent playbook to configure the OS.
+4. After the VM is live, trigger the Ansible `lab-jkn-provision-vm`-equivalent playbook to configure the OS.
 
 ---
 
@@ -165,26 +165,26 @@ Local state is a single point of failure — tied to one machine, lost if the ma
 
 ## First-Time Setup
 
-**1. Store vSphere credentials in Vault (one-time, on hmvlapvlt001):**
+**1. Store vSphere credentials in Vault (one-time, on vault-01):**
 ```bash
 export VAULT_ADDR=http://127.0.0.1:8200
 export VAULT_TOKEN=<root-token>
 vault kv put secret/vsphere/vcenter username=administrator@vsphere.local password=<vcenter-password>
 ```
 
-**2. Verify the Minio `terraform-state` bucket exists (on hmvlapmin001):**
+**2. Verify the Minio `terraform-state` bucket exists (on minio-01):**
 ```bash
 mc alias set local http://localhost:9000 <access-key> <secret-key>
 mc ls local/terraform-state
 # If missing: mc mb local/terraform-state
 ```
 
-**3. Confirm Jenkins credential `nnt-vault-root-token` is set:**
-Jenkins → Manage Jenkins → Credentials → Global → `nnt-vault-root-token` (Secret Text, Vault root token).
+**3. Confirm Jenkins credential `vault-root-token` is set:**
+Jenkins → Manage Jenkins → Credentials → Global → `vault-root-token` (Secret Text, Vault root token).
 
-**4. Initialize on hmvlaptfm001:**
+**4. Initialize on tf-runner-01:**
 ```bash
-export VAULT_ADDR=http://10.10.0.44:8200
+export VAULT_ADDR=http://192.168.0.44:8200
 export VAULT_TOKEN=<vault-root-token>
 cd /opt/homelabinfra-iac-terraform
 tofu init
@@ -197,12 +197,12 @@ tofu plan  # Verify credentials and state backend connect correctly
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `Error: Failed to query available provider packages` | Minio unreachable or bucket missing | Verify hmvlapmin001 is up, `terraform-state` bucket exists |
-| `Error: Permission denied` on Vault lookup | Vault sealed or VAULT_TOKEN wrong | `vault status` on hmvlapvlt001 — unseal if needed |
+| `Error: Failed to query available provider packages` | Minio unreachable or bucket missing | Verify minio-01 is up, `terraform-state` bucket exists |
+| `Error: Permission denied` on Vault lookup | Vault sealed or VAULT_TOKEN wrong | `vault status` on vault-01 — unseal if needed |
 | `Error: Could not connect to vCenter` | vCenter unreachable or credentials wrong | Verify vCenter is up, check `secret/vsphere/vcenter` in Vault |
 | `Plan shows unexpected changes` | VM drifted from Terraform state (manual vCenter change) | Review diff carefully — `tofu state show <resource>` to inspect current state |
 | `State file locked` | A previous apply didn't finish cleanly | Minio has no state locking — check if another apply is running; if not, safe to proceed |
-| `EFI boot failure after clone` | Template firmware mismatch | VM module must set `firmware = "efi"` and `efi_secure_boot_enabled = true` — matches `PLTMPOL904242026` template |
+| `EFI boot failure after clone` | Template firmware mismatch | VM module must set `firmware = "efi"` and `efi_secure_boot_enabled = true` — matches `ol9-golden-YYYYMMDD` template |
 
 ---
 
@@ -210,8 +210,8 @@ tofu plan  # Verify credentials and state backend connect correctly
 
 | VM | IP | Role |
 |---|---|---|
-| hmvlapvc001 | — | vCenter (provisioning target) |
-| hmvlaptfm001 | 10.10.0.48 | This execution node |
-| hmvlapmin001 | 10.10.0.47 | Minio (state backend) |
-| hmvlapvlt001 | 10.10.0.44 | HashiCorp Vault (credential source) |
-| hmvlapjkn001 | 10.10.1.41 | Jenkins (pipeline orchestrator) |
+| vcenter-01 | — | vCenter (provisioning target) |
+| tf-runner-01 | 192.168.0.48 | This execution node |
+| minio-01 | 192.168.0.47 | Minio (state backend) |
+| vault-01 | 192.168.0.44 | HashiCorp Vault (credential source) |
+| jenkins-01 | 192.168.1.41 | Jenkins (pipeline orchestrator) |
